@@ -1,0 +1,385 @@
+---
+title: "Cluster Anti Money Laundering Data"
+author: "Yuanhao Lai, Yifan Li"
+output:
+  html_document:
+    self_contained: no
+    number_sections: true
+    code_folding: hide
+    toc: true
+    toc_depth: 6
+    fig_width: 10
+    highlight: tango
+    theme: cosmo
+    smart: true
+editor_options: 
+  chunk_output_type: console
+---
+
+#Introduction 
+Anti-money laundering is always an important concern in the financial industry such as banks. In general, they want to design a better procedure to efficiently flag the potentially ``strange'' behaviors of their customers (so as to make a phone-call check later on) by keeping track of some of the important information in their transaction but also trying not to bother their clients too much. 
+
+Our motivation is to detect the potential money laundering behavior from the dataset we have. Before diving into the data analysis, we definitely need to think about the meanings of each variable and we may need to do some transformation on them to make them useful to us. 
+In the first stage of modeling, one attempt is to cluster the customers based on the values of their transaction variables then further explore the points in each cluster. In this way, we are able to have an initial feelings about the identies or the types of customers based on their transaction behaviors, and at the same time we should try to interpret each cluster to think about what really happen there. To have a better interpretable way may be also a guideline for us to design better cluster algorithms.
+
+# Preparations  {.tabset .tabset-fade .tabset-pills}
+
+```{r}
+#Put data set with this Rmarkdown file and set the local directory
+setwd("D:/BACKUPDROPBOX/NewtermPHD/TERM7/Financial Data/Anti-Money Laundering Project Data")
+```
+
+
+## load library
+```{r load library, message=FALSE, warning=FALSE, results='hide'}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(TDA, rgl,data.table,DT,knitr,plotly)
+#knit_hooks$set(webgl = hook_webgl)
+options(scipen = 9999, warn = -1, digits= 4)
+```
+
+# Data Description 
+For this anti-money laundering data analysis project, here is the dataset we are working on, which is offered by Scotia AML specialists. 
+
+We have 100,000 clients. For each client it has eight transaction types reflecting the account behaviors and six months of records.
+
+Eight transaction types:
+
+- T1: Deposit; 
+- T2: Night Deposit-Cash
+- T3: Cash Withdrawal
+- T4: Wire-Incoming
+- T5: Overseas Wire-Outgoing
+- T6: Bill Payment
+- T7: Mortgage
+- T8: Payroll Deposit
+
+Six months of records: 
+
+- M1: FEB 
+- M2: MARCH 
+- M3: APRIL 
+- M4: JUNE 
+- M5: JULY 
+- M6: Aug
+
+# Glimpse at the Dataset {.tabset}
+## Struture of the data set
+The data set is made purposely and arranged well, 
+so we do not need to do the dirty data cleaning. 
+But in order to tell the characteristic of a client,
+we may need to further process the attribute for each client.
+
+Here is the data struture of the information for one client.
+
+```{r glimpse train, echo=FALSE}
+load("Copy of M1 to M6 DATA.RData")
+Mall <- cbind(M1,M2[,-1],M3[,-1],M4[,-1],M5[,-1],M6[,-1])
+
+colnames(Mall) <- c("ID",
+                    as.vector(sapply(paste("M",1:6,sep=""),
+                                     FUN = function(x){paste(x,paste("T",1:8,sep=""),sep="_")}) ))
+rm(M1,M2,M3,M4,M5,M6)
+
+lookUpID <- function(ID=1,Mall){
+  DX <- matrix(Mall[ID,-1],6,8,byrow = T)
+  colnames(DX) <- paste("T",1:8,sep="")
+  rownames(DX) <- paste("M",1:6,sep="")
+  DX
+}
+
+
+datatable(lookUpID(3,Mall),caption="Client ID = 3")
+```
+
+## Aggregate information of each attribute by months
+
+The idea here is to derived some summary quantities for each variable (column) by utilizing their values within 6 months.
+
+```{r}
+datatable(lookUpID(3,Mall),class="table-condensed", options = list(
+  columnDefs = list(list(className = 'dt-center', targets = 5)),
+  scrollX = TRUE,
+  pageLength = 5,
+  lengthMenu = c(5, 10, 15, 20),
+  caption="Client ID = 3"
+))
+
+```
+
+### Aggregation
+
+For example, I computed the sample average and the sample standard deviation for each month.
+The summarized data set is shown below.
+
+```{r}
+summaryTransform <- function(x){
+  indexSeq <- 1+seq(0,40,by = 8)
+  c(x[1],
+    mean(x[1+indexSeq]),sd(x[1+indexSeq]),
+    mean(x[2+indexSeq]),sd(x[2+indexSeq]),
+    mean(x[3+indexSeq]),sd(x[3+indexSeq]),
+    mean(x[4+indexSeq]),sd(x[4+indexSeq]),
+    mean(x[5+indexSeq]),sd(x[5+indexSeq]),
+    mean(x[6+indexSeq]),sd(x[6+indexSeq]),
+    mean(x[7+indexSeq]),sd(x[7+indexSeq]),
+    mean(x[8+indexSeq]),sd(x[8+indexSeq]))
+}
+
+summaryTransform <- function(x){
+  indexSeq <- 1+seq(0,40,by = 8)
+  c(x[1],
+    mean(x[1+indexSeq]),sd(x[1+indexSeq]),
+    mean(x[2+indexSeq]),sd(x[2+indexSeq]),
+    mean(x[3+indexSeq]),sd(x[3+indexSeq]),
+    mean(x[4+indexSeq]),sd(x[4+indexSeq]),
+    mean(x[5+indexSeq]),sd(x[5+indexSeq]),
+    mean(x[6+indexSeq]),sd(x[6+indexSeq]),
+    mean(x[7+indexSeq]),sd(x[7+indexSeq]),
+    mean(x[8+indexSeq]),sd(x[8+indexSeq]))
+}
+
+transMall <- apply(Mall,MARGIN = 1,summaryTransform)
+transMall <- t(transMall)
+colnames(transMall) <- c("ID",
+                         paste(c("m","s"),rep(c(1:8),each=2),sep = ""))
+#str(transMall)
+
+
+datatable(head(transMall, 50),class="table-condensed", options = list(
+  columnDefs = list(list(className = 'dt-center', targets = 5)),
+  scrollX = TRUE,
+  pageLength = 5,
+  lengthMenu = c(5, 10, 15, 20)
+))
+
+```
+
+### Summary
+A quick summary of each columns are shown below.
+It is noted that **s7** are all zeros.
+This is reasonable because people paid the same morgage every month.
+
+```{r}
+summary(transMall[,-1])
+```
+
+
+# Dimension Reduction {.tabset}
+
+## Principle component analysis
+```{r}
+# Remove id and s7
+transMallsub <- scale(transMall[,-c(1,15)])
+PCAMall <- princomp(transMallsub)
+plot(PCAMall) #Show variations explained by each PC
+
+# Compute PC's loadings and PC's
+PCloading <- PCAMall$loadings[,1:15]
+datatable(round(PCloading,2),class="table-condensed", options = list(
+  columnDefs = list(list(className = 'dt-center', targets = 5)),
+  scrollX = TRUE,
+  pageLength = 15,
+  lengthMenu = c(15,5,10)
+))
+
+pcaX <- transMallsub %*% PCAMall$loadings
+```
+
+## Visualization of principle components 
+Here shows a 3-dimension plot of PC1, PC2 and PC3.
+By visual checking, there are 6 distint clusters.
+In particular, there is one small cluster that might be suspicious.
+We can do more analysis on the clients contained in this cluster.
+
+```{r}
+lab <- paste("PC",
+             1:3,
+             "(",
+             round(PCAMall$sdev[1:3]^2/sum( PCAMall$sdev^2)*100,2),
+             "%)",
+             sep="")
+colSumPayroll <- rowSums(abs(Mall[,9+seq(0,40,8)]))
+colIndex <- 1+as.numeric(colSumPayroll==0)
+colIndex <- ifelse(colIndex==1,"black","red")
+plot3d(pcaX[,1:3],
+       xlab=lab[1],ylab=lab[2],zlab=lab[3],
+       col=colIndex,alpha=0.3)
+legend3d("topright", legend = c("No Pay","Pay"), pch=c(16,16),
+         col = c("black","red"),  inset=c(0.02),cex=1.2)
+
+#write.csv(PCAMall$loadings[,1:15],file="loadingMatrix.csv")
+#write.csv(data.frame(ID=Mall[,1],pcaX),file = "PCA123.csv",row.names = FALSE)
+rglwidget()
+```
+
+## Use plotly
+```{r,warning=FALSE}
+pcaX2 <- as.data.frame(pcaX[,1:3])
+colnames(pcaX2) <- paste("PC",1:3,sep="")
+pcaX2$type <-factor( ifelse(colIndex=="black","No Pay","Pay"))
+
+N <- nrow(pcaX2)
+p <- plot_ly(pcaX2[1:N,], x = ~PC1, y = ~PC2, z = ~PC3, color = ~type, 
+             colors = c("black","red"),
+             size=0.001,text=Mall[1:N,1],alpha=0.2) %>%
+  add_markers() %>%
+  layout(scene = list(xaxis = list(title = lab[1]),
+                     yaxis = list(title = lab[2]),
+                     zaxis = list(title = lab[3]) ))
+p
+```
+
+
+## Add the correct labels
+
+Here only shows the first 50000 clients with their labels.
+```{r}
+# Plot with correct labels
+clusterFirstHalf <- read.csv("Clusters_FirstHalf.csv")
+print("Correct clusters")
+sort(table(clusterFirstHalf$Cluster.Number))
+
+plot3d(pcaX[1:50000,1:3],
+       xlab=lab[1],ylab=lab[2],zlab=lab[3],
+       col=clusterFirstHalf$Cluster.Number,alpha=0.6)
+legend3d("topright", legend = 1:8, pch=rep(16,8),
+         col =1:8,  inset=c(0.02),cex=1.2)
+rglwidget()
+```
+
+
+## Use k-means clustering and label them
+```{r}
+# #Try k-means here
+InitialID <- c(23879,31916,39791,11135,9883,13967,25673,31563)
+kmeanFit <- kmeans(pcaX[,1:3],centers=pcaX[InitialID,1:3],algorithm = "MacQueen")
+
+print("Correct clusters")
+sort(table(clusterFirstHalf$Cluster.Number))
+print("K-means clusters")
+sort(table(kmeanFit$cluster[1:50000]))
+
+plot3d(pcaX[,1:3],
+       xlab=lab[1],ylab=lab[2],zlab=lab[3],
+       col=kmeanFit$cluster,alpha=0.3)
+legend3d("topright", legend = 1:8, pch=rep(16,8),
+         col =1:8,  inset=c(0.02),cex=1.2)
+
+rglwidget()
+```
+
+
+# Acknowledgement
+Thanks for suggestions from group members.
+
+```{r}
+# Extract clients in the smallest cluster
+# criteria1Fun <- function(regionEnd){
+#   (pcaX[,1]>regionEnd[1])&(pcaX[,1]<regionEnd[2])&(pcaX[,2]>regionEnd[3])&
+#     (pcaX[,2]<regionEnd[4])&(pcaX[,3]>regionEnd[5])&(pcaX[,3]<regionEnd[6])
+# }
+# 
+# criteria1 <- criteria1Fun(c(1.76,1.85,-0.62,-0.55,1.35,1.41))
+# criteria2 <- criteria1Fun(c(1.25,1.69,-0.635,-0.49,1.29,1.36))
+# criteria3 <- criteria1Fun(c(1.70,1.98,-0.57,-0.45,0.41,1.3))
+# criteria4 <- criteria1Fun(c(1.4,4.05,-0.27,0.5,-7.9,0.64))
+# criteria5 <- criteria1Fun(c(-1.3,0.74,-1,0.18,0.92,1.36))
+# criteria6 <- criteria1Fun(c(-4.6,-1.55,0.45,2.4,-0.15,0.65))
+# criteria7 <- criteria1Fun(c(-7,-1.3,0.46,7.5,-0.53,0.8))
+# criteria8 <- criteria1Fun(c(-12,-3,-6,-1.5,-2.25,0.2))
+# 
+# criteria <- list()
+# criteria[[1]] <- criteria1
+# criteria[[2]] <- criteria2
+# criteria[[3]] <- criteria3
+# criteria[[4]] <- criteria4
+# criteria[[5]] <- criteria5
+# criteria[[6]] <- criteria6
+# criteria[[7]] <- criteria7
+# criteria[[8]] <- criteria8
+# 
+# manualCluster <- numeric(nrow(pcaX))
+# for(i in 1:8){
+#   manualCluster[criteria[[i]]] <- i
+# }
+# table(manualCluster)
+# 
+# plot3d(pcaX[,1:3],
+#        xlab=lab[1],ylab=lab[2],zlab=lab[3],
+#        col=manualCluster+1,alpha=0.3)
+# legend3d("topright", legend = 1:9, pch=rep(16,9),
+#          col =1:9,  inset=c(0.02),cex=1.2)
+# 
+# rglwidget()
+# 
+# #Check any overlay some ovelaps
+# # nrow(cluster1)+nrow(cluster2)+nrow(cluster3)+nrow(cluster4)+nrow(cluster5)+
+# #   nrow(cluster6)+nrow(cluster7)+nrow(cluster8)
+# 
+# 
+# #Try k-means here
+# InitialID <- c(23879,31916,39791,11135,9883,13967,25673,31563)
+# kmeanFit <- kmeans(pcaX[,1:3],centers=pcaX[InitialID,1:3],algorithm = "MacQueen")
+# 
+# table(kmeanFit$cluster)
+# 
+# plot3d(pcaX[,1:3],
+#        xlab=lab[1],ylab=lab[2],zlab=lab[3],
+#        col=kmeanFit$cluster,alpha=0.3)
+# legend3d("topright", legend = 1:8, pch=rep(16,8),
+#          col =1:8,  inset=c(0.02),cex=1.2)
+# 
+# rglwidget()
+# 
+# 
+# # Plot with correct labels
+# clusterFirstHalf <- read.csv("Clusters_FirstHalf.csv")
+# 
+# plot3d(pcaX[1:50000,1:3],
+#        xlab=lab[1],ylab=lab[2],zlab=lab[3],
+#        col=clusterFirstHalf$Cluster.Number,alpha=0.3)
+# legend3d("topright", legend = 1:8, pch=rep(16,8),
+#          col =1:8,  inset=c(0.02),cex=1.2)
+# 
+# 
+# 
+# #Compare the label with the visual clusters
+# sort(table(clusterFirstHalf$Cluster.Number))
+# sort(table(manualCluster[1:50000]))
+# 
+# ID8 <- Mall[which(manualCluster[1:50000]==1),1]
+# mean(ID8 %in% clusterFirstHalf$Client.ID[clusterFirstHalf$Cluster.Number==8])
+# 
+# ID1 <- Mall[which(manualCluster[1:50000]==2),1]
+# mean(ID1 %in% clusterFirstHalf$Client.ID[clusterFirstHalf$Cluster.Number==1])
+# 
+# ID4 <- Mall[which(manualCluster[1:50000]==8),1]
+# mean(ID4 %in% clusterFirstHalf$Client.ID[clusterFirstHalf$Cluster.Number==4])
+# 
+# ID7 <- Mall[which(manualCluster[1:50000]==3),1]
+# mean(ID7 %in% clusterFirstHalf$Client.ID[clusterFirstHalf$Cluster.Number==7])
+# 
+# ID2 <- Mall[which(manualCluster[1:50000]==4),1]
+# mean(ID2 %in% clusterFirstHalf$Client.ID[clusterFirstHalf$Cluster.Number==2])
+# 
+# 
+# #Compare the label with the k-means clusters
+# sort(table(clusterFirstHalf$Cluster.Number))
+# sort(table(kmeanFit$cluster[1:50000]))
+# 
+# ID3 <- Mall[which(kmeanFit$cluster[1:50000]==5),1]
+# mean(ID3 %in% clusterFirstHalf$Client.ID[clusterFirstHalf$Cluster.Number==3])
+# 
+# ID5 <- Mall[which(kmeanFit$cluster[1:50000]==6),1]
+# mean(ID5 %in% clusterFirstHalf$Client.ID[clusterFirstHalf$Cluster.Number==5])
+# 
+# 
+# ID6 <- Mall[which(kmeanFit$cluster[1:50000]==7),1]
+# mean(ID6 %in% clusterFirstHalf$Client.ID[clusterFirstHalf$Cluster.Number==6])
+
+```
+
+
+
+# Further Exploration on the Subset
